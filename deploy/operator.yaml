@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jitsi-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: jitsi-operator
+  template:
+    metadata:
+      labels:
+        name: jitsi-operator
+    spec:
+      serviceAccountName: jitsi-operator
+      containers:
+        - name: jitsi-operator
+          # Replace this with the built image name
+          image: REPLACE_IMAGE
+          command:
+          - jitsi-operator
+          imagePullPolicy: Always
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: "jitsi-operator"

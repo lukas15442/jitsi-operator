@@ -1,0 +1,6 @@
+apiVersion: fbi.h-da.de/v1alpha1
+kind: JVB
+metadata:
+  name: jvb-manager
+spec:
+  size: 3
