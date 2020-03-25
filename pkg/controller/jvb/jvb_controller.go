@@ -2,12 +2,14 @@ package jvb
 
 import (
 	"context"
-
+	"fmt"
 	fbiv1alpha1 "jitsi-operator/pkg/apis/fbi/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -16,8 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"fmt"
 )
+
+var JvbGroupLabel = []string{"app.kubernetes.io/group-name", "jvb-test"}
 
 var log = logf.Log.WithName("controller_jvb")
 
@@ -100,32 +103,125 @@ func (r *ReconcileJVB) Reconcile(request reconcile.Request) (reconcile.Result, e
 		return reconcile.Result{}, err
 	}
 
-	size := instance.Spec.Size
-	reqLogger.Info("size")
+	size := int(instance.Spec.Size)
 	reqLogger.Info(fmt.Sprint(size))
+
+	deployments := &appsv1.DeploymentList{}
+	opts := []client.ListOption{
+		client.InNamespace(request.NamespacedName.Namespace),
+		client.MatchingLabels{JvbGroupLabel[0]: JvbGroupLabel[1]},
+	}
+	ctx := context.TODO()
+	err = r.client.List(ctx, deployments, opts...)
+
+	if len(deployments.Items) < size {
+		r.createDeploymentsAndServices(size-len(deployments.Items), request)
+	} else if len(deployments.Items) > size {
+		r.deleteDeploymentsAndServices(len(deployments.Items)-size, request)
+	}
 
 	return reconcile.Result{}, nil
 }
 
-// newPodForCR returns a busybox pod with the same name/namespace as the cr
-func newPodForCR(cr *fbiv1alpha1.JVB) *corev1.Pod {
-	labels := map[string]string{
-		"app": cr.Name,
-	}
-	return &corev1.Pod{
+func (r *ReconcileJVB) deploymentForJvb(namespace string, name string) *appsv1.Deployment {
+	replicas := int32(1)
+
+	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cr.Name + "-pod",
-			Namespace: cr.Namespace,
-			Labels:    labels,
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				JvbGroupLabel[0]:         JvbGroupLabel[1],
+				"app.kubernetes.io/name": name,
+			},
 		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:    "busybox",
-					Image:   "busybox",
-					Command: []string{"sleep", "3600"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app.kubernetes.io/name": name,},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app.kubernetes.io/name": name,},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Image: "twalter/openshift-nginx",
+						Name:  "redirect-nginx-image",
+						Ports: []corev1.ContainerPort{{
+							ContainerPort: 80,
+							Protocol:      "TCP",
+						}, {
+							ContainerPort: 8081,
+							Protocol:      "TCP",
+						}},
+					}},
 				},
 			},
 		},
+	}
+	return dep
+}
+
+func (r *ReconcileJVB) serviceForJvb(namespace string, name string) *corev1.Service {
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				JvbGroupLabel[0]:         JvbGroupLabel[1],
+				"app.kubernetes.io/name": name,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"app.kubernetes.io/name": name,
+			},
+			Ports: []corev1.ServicePort{{
+				Port:       8081,
+				TargetPort: intstr.IntOrString{IntVal: 8081},
+				Protocol:   "TCP",
+			}},
+		},
+	}
+	return service
+}
+
+func (r *ReconcileJVB) createDeploymentsAndServices(size int, request reconcile.Request) {
+	for i := 0; i < size; i++ {
+		name := JvbGroupLabel[1] + "-" + RandomString(10)
+
+		dep := r.deploymentForJvb(request.NamespacedName.Namespace, name)
+		service := r.serviceForJvb(request.NamespacedName.Namespace, name)
+		ctx := context.TODO()
+		_ = r.client.Create(ctx, dep)
+		_ = r.client.Create(ctx, service)
+	}
+}
+
+func (r *ReconcileJVB) deleteDeploymentsAndServices(size int, request reconcile.Request) {
+	for i := 0; i < size; i++ {
+		services := &corev1.ServiceList{}
+		deployments := &appsv1.DeploymentList{}
+		opts := []client.ListOption{
+			client.InNamespace(request.NamespacedName.Namespace),
+			client.MatchingLabels{JvbGroupLabel[0]: JvbGroupLabel[1]},
+		}
+		ctx := context.TODO()
+		_ = r.client.List(ctx, services, opts...)
+		_ = r.client.List(ctx, deployments, opts...)
+
+		dep := deployments.Items[0]
+		name := dep.ObjectMeta.Name
+
+		var service corev1.Service
+		for _, currentService := range services.Items {
+			if currentService.Name == name {
+				service = currentService
+			}
+		}
+
+		_ = r.client.Delete(ctx, &service, client.GracePeriodSeconds(2))
+		_ = r.client.Delete(ctx, &dep, client.GracePeriodSeconds(2))
 	}
 }
