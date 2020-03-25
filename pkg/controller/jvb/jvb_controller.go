@@ -7,6 +7,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -20,7 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-var JvbGroupLabel = []string{"app.kubernetes.io/group-name", "jvb-test"}
+var JvbName = []string{"app.kubernetes.io/name", "jvb"}
+var JvbPreInstanceName = []string{"app.kubernetes.io/instance", "jvb-test"}
 
 var log = logf.Log.WithName("controller_jvb")
 
@@ -107,7 +109,7 @@ func (r *ReconcileJVB) Reconcile(request reconcile.Request) (reconcile.Result, e
 	deployments := &appsv1.DeploymentList{}
 	opts := []client.ListOption{
 		client.InNamespace(request.NamespacedName.Namespace),
-		client.MatchingLabels{JvbGroupLabel[0]: JvbGroupLabel[1]},
+		client.MatchingLabels{JvbName[0]: JvbName[1]},
 	}
 	ctx := context.TODO()
 	err = r.client.List(ctx, deployments, opts...)
@@ -121,6 +123,55 @@ func (r *ReconcileJVB) Reconcile(request reconcile.Request) (reconcile.Result, e
 	return reconcile.Result{}, nil
 }
 
+func (r *ReconcileJVB) createDeploymentsAndServices(size int, request reconcile.Request) {
+	for i := 0; i < size; i++ {
+		random := RandomString(10)
+		name := JvbPreInstanceName[1] + "-" + random
+		nameHttp := JvbPreInstanceName[1] + "-http-" + random
+		nameTcp := JvbPreInstanceName[1] + "-tcp-" + random
+		ctx := context.TODO()
+
+		dep := r.deploymentForJvb(request.NamespacedName.Namespace, name)
+		_ = r.client.Create(ctx, dep)
+
+		service := r.serviceForJvb(request.NamespacedName.Namespace, name)
+		_ = r.client.Create(ctx, service)
+
+		serviceHttp := r.serviceForJvbHttp(request.NamespacedName.Namespace, nameHttp, name)
+		_ = r.client.Create(ctx, serviceHttp)
+
+		serviceTcp := r.serviceForJvbTcp(request.NamespacedName.Namespace, nameTcp, name)
+		_ = r.client.Create(ctx, serviceTcp)
+	}
+}
+
+func (r *ReconcileJVB) deleteDeploymentsAndServices(size int, request reconcile.Request) {
+	for i := 0; i < size; i++ {
+		services := &corev1.ServiceList{}
+		deployments := &appsv1.DeploymentList{}
+		opts := []client.ListOption{
+			client.InNamespace(request.NamespacedName.Namespace),
+			client.MatchingLabels{JvbName[0]: JvbName[1]},
+		}
+		ctx := context.TODO()
+		_ = r.client.List(ctx, services, opts...)
+		_ = r.client.List(ctx, deployments, opts...)
+
+		dep := deployments.Items[0]
+		name := dep.ObjectMeta.Name
+		random := strings.Split(name, "-")[len(strings.Split(name, "-"))-1]
+
+		for _, currentService := range services.Items {
+			currentRandom := strings.Split(currentService.Name, "-")[len(strings.Split(currentService.Name, "-"))-1]
+			if currentRandom == random {
+				_ = r.client.Delete(ctx, &currentService, client.GracePeriodSeconds(2))
+			}
+		}
+
+		_ = r.client.Delete(ctx, &dep, client.GracePeriodSeconds(2))
+	}
+}
+
 func (r *ReconcileJVB) deploymentForJvb(namespace string, name string) *appsv1.Deployment {
 	replicas := int32(1)
 
@@ -129,31 +180,134 @@ func (r *ReconcileJVB) deploymentForJvb(namespace string, name string) *appsv1.D
 			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				JvbGroupLabel[0]:         JvbGroupLabel[1],
-				"app.kubernetes.io/name": name,
+				JvbPreInstanceName[0]: name,
+				JvbName[0]:            JvbName[1],
 			},
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app.kubernetes.io/name": name,},
+				MatchLabels: map[string]string{
+					JvbPreInstanceName[0]: name,
+					JvbName[0]:            JvbName[1],
+				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"app.kubernetes.io/name": name,},
+					Labels: map[string]string{
+						JvbPreInstanceName[0]: name,
+						JvbName[0]:            JvbName[1],
+					},
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Image: "twalter/openshift-nginx",
-						Name:  "redirect-nginx-image",
-						Ports: []corev1.ContainerPort{{
-							ContainerPort: 80,
-							Protocol:      "TCP",
-						}, {
-							ContainerPort: 8081,
-							Protocol:      "TCP",
-						}},
-					}},
+					ServiceAccountName: "jvb",
+					Containers: []corev1.Container{
+						{
+							ReadinessProbe: &corev1.Probe{
+								Handler: corev1.Handler{
+									Exec: nil,
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/about/health",
+										Port: intstr.IntOrString{
+											IntVal: 8080,
+										},
+										Scheme: corev1.URISchemeHTTP,
+									},
+									TCPSocket: nil,
+								},
+								TimeoutSeconds:   1,
+								PeriodSeconds:    10,
+								SuccessThreshold: 1,
+								FailureThreshold: 3,
+							},
+							Name: "jvb",
+							LivenessProbe: &corev1.Probe{
+								Handler: corev1.Handler{
+									Exec: nil,
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/about/health",
+										Port: intstr.IntOrString{
+											IntVal: 8080,
+										},
+										Scheme: corev1.URISchemeHTTP,
+									},
+									TCPSocket: nil,
+								},
+								TimeoutSeconds:   1,
+								PeriodSeconds:    10,
+								SuccessThreshold: 1,
+								FailureThreshold: 3,
+							},
+							Env: []corev1.EnvVar{
+								{
+									Name: "JVB_AUTH_USER",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "jitsi",
+											},
+											Key: "JVB_AUTH_USER",
+										},
+									},
+								},
+								{
+									Name: "JVB_AUTH_PASSWORD",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "jitsi",
+											},
+											Key: "JVB_AUTH_PASSWORD",
+										},
+									},
+								},
+								{
+									Name: "DOCKER_HOST_ADDRESS",
+									ValueFrom: &corev1.EnvVarSource{
+										ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "jitsi",
+											},
+											Key: "JVB0_PUBLIC_ADDR",
+										},
+									},
+								},
+							},
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "jvb",
+									ContainerPort: 10000,
+									Protocol:      "UDP",
+								},
+								{
+									Name:          "jvb-tcp",
+									ContainerPort: 443,
+									Protocol:      "TCP",
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "config",
+									MountPath: "/config",
+								},
+							},
+							EnvFrom: []corev1.EnvFromSource{
+								{
+									ConfigMapRef: &corev1.ConfigMapEnvSource{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "jitsi",
+										},
+									},
+								},
+							},
+							Image: "jitsi/jvb:4101",
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "config",
+						},
+					},
 				},
 			},
 		},
@@ -167,59 +321,84 @@ func (r *ReconcileJVB) serviceForJvb(namespace string, name string) *corev1.Serv
 			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				JvbGroupLabel[0]:         JvbGroupLabel[1],
-				"app.kubernetes.io/name": name,
+				JvbPreInstanceName[0]: name,
+				JvbName[0]:            JvbName[1],
 			},
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{
-				"app.kubernetes.io/name": name,
+				JvbPreInstanceName[0]: name,
+				JvbName[0]:            JvbName[1],
 			},
-			Ports: []corev1.ServicePort{{
-				Port:       8081,
-				TargetPort: intstr.IntOrString{IntVal: 8081},
-				Protocol:   "TCP",
-			}},
+			Type: corev1.ServiceType("LoadBalancer"),
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "jvb",
+					Port:       10000,
+					TargetPort: intstr.IntOrString{IntVal: 10000},
+					Protocol:   "UDP",
+				},
+			},
 		},
 	}
 	return service
 }
 
-func (r *ReconcileJVB) createDeploymentsAndServices(size int, request reconcile.Request) {
-	for i := 0; i < size; i++ {
-		name := JvbGroupLabel[1] + "-" + RandomString(10)
-
-		dep := r.deploymentForJvb(request.NamespacedName.Namespace, name)
-		service := r.serviceForJvb(request.NamespacedName.Namespace, name)
-		ctx := context.TODO()
-		_ = r.client.Create(ctx, dep)
-		_ = r.client.Create(ctx, service)
+func (r *ReconcileJVB) serviceForJvbHttp(namespace string, httpName string, name string) *corev1.Service {
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      httpName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				JvbPreInstanceName[0]: httpName,
+				JvbName[0]:            JvbName[1],
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				JvbPreInstanceName[0]: name,
+				JvbName[0]:            JvbName[1],
+			},
+			Type: corev1.ServiceType("ClusterIP"),
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "jvb-http",
+					Port:       80,
+					TargetPort: intstr.IntOrString{IntVal: 8080},
+					Protocol:   "TCP",
+				},
+			},
+		},
 	}
+	return service
 }
 
-func (r *ReconcileJVB) deleteDeploymentsAndServices(size int, request reconcile.Request) {
-	for i := 0; i < size; i++ {
-		services := &corev1.ServiceList{}
-		deployments := &appsv1.DeploymentList{}
-		opts := []client.ListOption{
-			client.InNamespace(request.NamespacedName.Namespace),
-			client.MatchingLabels{JvbGroupLabel[0]: JvbGroupLabel[1]},
-		}
-		ctx := context.TODO()
-		_ = r.client.List(ctx, services, opts...)
-		_ = r.client.List(ctx, deployments, opts...)
-
-		dep := deployments.Items[0]
-		name := dep.ObjectMeta.Name
-
-		var service corev1.Service
-		for _, currentService := range services.Items {
-			if currentService.Name == name {
-				service = currentService
-			}
-		}
-
-		_ = r.client.Delete(ctx, &service, client.GracePeriodSeconds(2))
-		_ = r.client.Delete(ctx, &dep, client.GracePeriodSeconds(2))
+func (r *ReconcileJVB) serviceForJvbTcp(namespace string, tcpName string, name string) *corev1.Service {
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tcpName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				JvbPreInstanceName[0]: tcpName,
+				JvbName[0]:            JvbName[1],
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				JvbPreInstanceName[0]: name,
+				JvbName[0]:            JvbName[1],
+			},
+			Type:                  corev1.ServiceType("LoadBalancer"),
+			ExternalTrafficPolicy: corev1.ServiceExternalTrafficPolicyType("Cluster"),
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "jvb-tcp",
+					Port:       443,
+					TargetPort: intstr.IntOrString{IntVal: 443},
+					Protocol:   "TCP",
+				},
+			},
+		},
 	}
+	return service
 }
