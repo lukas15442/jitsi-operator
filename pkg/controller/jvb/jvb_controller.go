@@ -5,8 +5,6 @@ import (
 	"fmt"
 	fbiv1alpha1 "jitsi-operator/pkg/apis/fbi/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -21,8 +19,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-var JvbName = []string{"app.kubernetes.io/name", "jvb"}
-var JvbPreInstanceName = []string{"app.kubernetes.io/instance", "jvb-test"}
+var operatorInstanceNameLabel string = "jvb.operator/instance"
+var operatorNameLabel string = "jvb.operator/group"
+var operatorNameLabelValue string = "operator-managed-jvb"
 
 var log = logf.Log.WithName("controller_jvb")
 
@@ -109,13 +108,13 @@ func (r *ReconcileJVB) Reconcile(request reconcile.Request) (reconcile.Result, e
 	deployments := &appsv1.DeploymentList{}
 	opts := []client.ListOption{
 		client.InNamespace(request.NamespacedName.Namespace),
-		client.MatchingLabels{JvbName[0]: JvbName[1]},
+		client.MatchingLabels{operatorNameLabel: operatorNameLabelValue},
 	}
 	ctx := context.TODO()
 	err = r.client.List(ctx, deployments, opts...)
 
 	if len(deployments.Items) < size {
-		r.createDeploymentsAndServices(size-len(deployments.Items), request)
+		r.createDeploymentsAndServices(size-len(deployments.Items), request, instance)
 	} else if len(deployments.Items) > size {
 		r.deleteDeploymentsAndServices(len(deployments.Items)-size, request)
 	}
@@ -123,25 +122,71 @@ func (r *ReconcileJVB) Reconcile(request reconcile.Request) (reconcile.Result, e
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileJVB) createDeploymentsAndServices(size int, request reconcile.Request) {
+func (r *ReconcileJVB) createDeploymentsAndServices(size int, request reconcile.Request, instance *fbiv1alpha1.JVB) {
 	for i := 0; i < size; i++ {
 		random := RandomString(10)
-		name := JvbPreInstanceName[1] + "-" + random
-		nameHttp := JvbPreInstanceName[1] + "-http-" + random
-		nameTcp := JvbPreInstanceName[1] + "-tcp-" + random
+
+		name := &instance.Spec.JVBDeployment.Name
+
+		r.createServices(request.NamespacedName.Namespace, *name, random, instance.Spec.Services)
+		r.createDeployment(request.NamespacedName.Namespace, random, instance.Spec.JVBDeployment)
+	}
+}
+
+func (r *ReconcileJVB) createDeployment(namespace string, random string, originalDeployment appsv1.Deployment) {
+	deployment := originalDeployment.DeepCopy()
+	instanceName := deployment.Name + "-" + random
+
+	deployment.Namespace = namespace
+	deployment.Name = instanceName
+
+	deployment.Labels[operatorInstanceNameLabel] = instanceName
+	deployment.Labels[operatorNameLabel] = operatorNameLabelValue
+
+	deployment.Spec.Selector.MatchLabels[operatorInstanceNameLabel] = instanceName
+	deployment.Spec.Selector.MatchLabels[operatorNameLabel] = operatorNameLabelValue
+
+	deployment.Spec.Template.Labels[operatorInstanceNameLabel] = instanceName
+	deployment.Spec.Template.Labels[operatorNameLabel] = operatorNameLabelValue
+
+	for i, env := range deployment.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "DOCKER_HOST_ADDRESS" {
+			services := &corev1.ServiceList{}
+			opts := []client.ListOption{
+				client.InNamespace(namespace),
+				client.MatchingLabels{operatorInstanceNameLabel: instanceName},
+			}
+			ctx := context.TODO()
+			_ = r.client.List(ctx, services, opts...)
+
+			deployment.Spec.Template.Spec.Containers[0].Env[i].Value = services.Items[0].Status.LoadBalancer.Ingress[0].IP
+		}
+	}
+
+	ctx := context.TODO()
+	_ = r.client.Create(ctx, deployment)
+}
+
+func (r *ReconcileJVB) createServices(namespace string, name string, random string, services []corev1.Service) {
+	for _, originalService := range services {
+		service := originalService.DeepCopy()
+		instanceName := service.Name + "-" + random
+
+		service.Namespace = namespace
+		service.Name = service.Name + "-" + random
+
+		service.Labels[operatorInstanceNameLabel] = instanceName
+		service.Labels[operatorNameLabel] = operatorNameLabelValue
+
+		service.Spec.Selector[operatorInstanceNameLabel] = name + "-" + random
+		service.Spec.Selector[operatorNameLabel] = operatorNameLabelValue
+
+		if _, ok := service.Annotations["metallb.universe.tf/allow-shared-ip"]; ok {
+			service.Annotations["metallb.universe.tf/allow-shared-ip"] = name + "-" + random
+		}
+
 		ctx := context.TODO()
-
-		dep := r.deploymentForJvb(request.NamespacedName.Namespace, name)
-		_ = r.client.Create(ctx, dep)
-
-		service := r.serviceForJvb(request.NamespacedName.Namespace, name)
 		_ = r.client.Create(ctx, service)
-
-		serviceHttp := r.serviceForJvbHttp(request.NamespacedName.Namespace, nameHttp, name)
-		_ = r.client.Create(ctx, serviceHttp)
-
-		serviceTcp := r.serviceForJvbTcp(request.NamespacedName.Namespace, nameTcp, name)
-		_ = r.client.Create(ctx, serviceTcp)
 	}
 }
 
@@ -151,7 +196,7 @@ func (r *ReconcileJVB) deleteDeploymentsAndServices(size int, request reconcile.
 		deployments := &appsv1.DeploymentList{}
 		opts := []client.ListOption{
 			client.InNamespace(request.NamespacedName.Namespace),
-			client.MatchingLabels{JvbName[0]: JvbName[1]},
+			client.MatchingLabels{operatorNameLabel: operatorNameLabelValue},
 		}
 		ctx := context.TODO()
 		_ = r.client.List(ctx, services, opts...)
@@ -172,7 +217,8 @@ func (r *ReconcileJVB) deleteDeploymentsAndServices(size int, request reconcile.
 	}
 }
 
-func (r *ReconcileJVB) deploymentForJvb(namespace string, name string) *appsv1.Deployment {
+/*
+func (r *ReconcileJVB) deploymentForJvbOld(namespace string, name string) *appsv1.Deployment {
 	replicas := int32(1)
 
 	dep := &appsv1.Deployment{
@@ -315,7 +361,7 @@ func (r *ReconcileJVB) deploymentForJvb(namespace string, name string) *appsv1.D
 	return dep
 }
 
-func (r *ReconcileJVB) serviceForJvb(namespace string, name string) *corev1.Service {
+func (r *ReconcileJVB) serviceForJvbOld(namespace string, name string) *corev1.Service {
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -344,7 +390,7 @@ func (r *ReconcileJVB) serviceForJvb(namespace string, name string) *corev1.Serv
 	return service
 }
 
-func (r *ReconcileJVB) serviceForJvbHttp(namespace string, httpName string, name string) *corev1.Service {
+func (r *ReconcileJVB) serviceForJvbHttpOld(namespace string, httpName string, name string) *corev1.Service {
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      httpName,
@@ -373,7 +419,7 @@ func (r *ReconcileJVB) serviceForJvbHttp(namespace string, httpName string, name
 	return service
 }
 
-func (r *ReconcileJVB) serviceForJvbTcp(namespace string, tcpName string, name string) *corev1.Service {
+func (r *ReconcileJVB) serviceForJvbTcpOld(namespace string, tcpName string, name string) *corev1.Service {
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      tcpName,
@@ -402,3 +448,5 @@ func (r *ReconcileJVB) serviceForJvbTcp(namespace string, tcpName string, name s
 	}
 	return service
 }
+
+*/
