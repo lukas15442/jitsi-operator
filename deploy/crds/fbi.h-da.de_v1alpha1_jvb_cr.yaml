@@ -9,15 +9,8 @@ spec:
     - kind: Service
       apiVersion: v1
       metadata:
-        name: jvb-test-http-xxm62eq7g9
-        namespace: jitsi-testing
-        selfLink: /api/v1/namespaces/jitsi-testing/services/jvb-test-http-xxm62eq7g9
-        uid: db0bad68-cb0d-417c-8473-f8c08fac62bc
-        resourceVersion: '38494129'
-        creationTimestamp: '2020-03-31T10:10:12Z'
+        name: WILL_BE_REPLACED
         labels:
-          app.kubernetes.io/instance: jvb-test-http-xxm62eq7g9
-          app.kubernetes.io/name: jvb
       spec:
         ports:
           - name: jvb-http
@@ -25,23 +18,12 @@ spec:
             port: 80
             targetPort: 8080
         selector:
-          app.kubernetes.io/instance: jvb-test-xxm62eq7g9
-          app.kubernetes.io/name: jvb
-        clusterIP: 172.30.232.23
         type: ClusterIP
-        sessionAffinity: None
     - kind: Service
       apiVersion: v1
       metadata:
-        name: jvb-test-tcp-xxm62eq7g9
-        namespace: jitsi-testing
-        selfLink: /api/v1/namespaces/jitsi-testing/services/jvb-test-tcp-xxm62eq7g9
-        uid: 20b44a50-4d45-4211-809b-fa1aa1713f07
-        resourceVersion: '38494140'
-        creationTimestamp: '2020-03-31T10:10:12Z'
+        name: WILL_BE_REPLACED
         labels:
-          app.kubernetes.io/instance: jvb-test-tcp-xxm62eq7g9
-          app.kubernetes.io/name: jvb
       spec:
         ports:
           - name: jvb-tcp
@@ -50,25 +32,13 @@ spec:
             targetPort: 443
             nodePort: 30240
         selector:
-          app.kubernetes.io/instance: jvb-test-xxm62eq7g9
-          app.kubernetes.io/name: jvb
         clusterIP: 172.30.213.174
         type: LoadBalancer
-        sessionAffinity: None
-        externalTrafficPolicy: Cluster
-
     - kind: Service
       apiVersion: v1
       metadata:
-        name: jvb-test-xxm62eq7g9
-        namespace: jitsi-testing
-        selfLink: /api/v1/namespaces/jitsi-testing/services/jvb-test-xxm62eq7g9
-        uid: fb1c0eca-f29c-45dd-990e-5dce1229f557
-        resourceVersion: '38494123'
-        creationTimestamp: '2020-03-31T10:10:12Z'
+        name: WILL_BE_REPLACED
         labels:
-          app.kubernetes.io/instance: jvb-test-xxm62eq7g9
-          app.kubernetes.io/name: jvb
       spec:
         ports:
           - name: jvb
@@ -77,40 +47,24 @@ spec:
             targetPort: 10000
             nodePort: 31884
         selector:
-          app.kubernetes.io/instance: jvb-test-xxm62eq7g9
-          app.kubernetes.io/name: jvb
         clusterIP: 172.30.213.17
         type: LoadBalancer
-        sessionAffinity: None
-        externalTrafficPolicy: Cluster
 
   jvbDeployment:
     kind: Deployment
     apiVersion: apps/v1
     metadata:
       annotations:
-      name: jvb-test-xxm62eq7g9
-      namespace: jitsi-testing
+      name: WILL_BE_REPLACED
       labels:
-        app.kubernetes.io/instance: jvb-test-xxm62eq7g9
-        app.kubernetes.io/name: jvb
     spec:
       replicas: 0
       selector:
         matchLabels:
-          app.kubernetes.io/instance: jvb-test-xxm62eq7g9
-          app.kubernetes.io/name: jvb
       template:
         metadata:
           labels:
-            app.kubernetes.io/instance: jvb-test-xxm62eq7g9
-            app.kubernetes.io/name: jvb
         spec:
-          restartPolicy: Always
-          serviceAccountName: jvb
-          schedulerName: default-scheduler
-          terminationGracePeriodSeconds: 30
-          securityContext: {}
           containers:
             - resources: {}
               readinessProbe:
@@ -145,7 +99,7 @@ spec:
                       name: jitsi
                       key: JVB_AUTH_PASSWORD
                 - name: DOCKER_HOST_ADDRESS
-                  value: FROM_OPERATOR
+                  value: WILL_BE_REPLACED
               ports:
                 - name: jvb
                   containerPort: 10000
@@ -166,7 +120,6 @@ spec:
           volumes:
             - name: config
               emptyDir: {}
-          dnsPolicy: ClusterFirst
       strategy:
         type: RollingUpdate
         rollingUpdate:
