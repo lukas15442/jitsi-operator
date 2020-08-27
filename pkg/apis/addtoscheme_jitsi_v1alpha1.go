@@ -1,7 +1,7 @@
 package apis
 
 import (
-	"jitsi-operator/pkg/apis/fbi/v1alpha1"
+	"jitsi-operator/pkg/apis/jitsi/v1alpha1"
 )
 
 func init() {

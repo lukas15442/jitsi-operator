@@ -6,8 +6,8 @@ metadata:
     rbac.authorization.k8s.io/aggregate-to-admin: "true" 
     rbac.authorization.k8s.io/aggregate-to-edit: "true" 
 rules:
-- apiGroups: ["fbi.h-da.de"] 
-  resources: ["jvbs"] 
+- apiGroups: ["jitsi.fbi.h-da.de"]
+  resources: ["jitsis"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"] 
 ---
 kind: ClusterRole
@@ -19,6 +19,6 @@ metadata:
     rbac.authorization.k8s.io/aggregate-to-view: "true" 
     rbac.authorization.k8s.io/aggregate-to-cluster-reader: "true" 
 rules:
-- apiGroups: ["fbi.h-da.de"] 
-  resources: ["jvbs"] 
+- apiGroups: ["jitsi.fbi.h-da.de"]
+  resources: ["jitsis"]
   verbs: ["get", "list", "watch"]

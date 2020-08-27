@@ -1,4 +1,4 @@
-package jvb
+package essentials
 
 import (
 	"math/rand"

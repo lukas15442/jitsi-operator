@@ -1,0 +1,6 @@
+apiVersion: jitsi.fbi.h-da.de/v1alpha1
+kind: Jitsi
+metadata:
+  name: jvb-manager
+spec:
+  size: 1

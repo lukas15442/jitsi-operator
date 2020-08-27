@@ -15,7 +15,6 @@ spec:
       serviceAccountName: jitsi-operator
       containers:
         - name: jitsi-operator
-          # Replace this with the built image name
           image: koehlerlukas/jitsi-operator
           command:
           - jitsi-operator
