@@ -110,7 +110,6 @@ func DeploymentForJvb(namespace string) *appsv1.Deployment {
 						{
 							ReadinessProbe: &corev1.Probe{
 								Handler: corev1.Handler{
-									Exec: nil,
 									HTTPGet: &corev1.HTTPGetAction{
 										Path: "/about/health",
 										Port: intstr.IntOrString{
@@ -118,7 +117,6 @@ func DeploymentForJvb(namespace string) *appsv1.Deployment {
 										},
 										Scheme: corev1.URISchemeHTTP,
 									},
-									TCPSocket: nil,
 								},
 								TimeoutSeconds:   1,
 								PeriodSeconds:    10,
@@ -128,7 +126,6 @@ func DeploymentForJvb(namespace string) *appsv1.Deployment {
 							Name: "jvb",
 							LivenessProbe: &corev1.Probe{
 								Handler: corev1.Handler{
-									Exec: nil,
 									HTTPGet: &corev1.HTTPGetAction{
 										Path: "/about/health",
 										Port: intstr.IntOrString{
@@ -136,7 +133,6 @@ func DeploymentForJvb(namespace string) *appsv1.Deployment {
 										},
 										Scheme: corev1.URISchemeHTTP,
 									},
-									TCPSocket: nil,
 								},
 								TimeoutSeconds:   1,
 								PeriodSeconds:    10,
