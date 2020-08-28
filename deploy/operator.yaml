@@ -15,7 +15,7 @@ spec:
       serviceAccountName: jitsi-operator
       containers:
         - name: jitsi-operator
-          image: koehlerlukas/jitsi-operator
+          image: koehlerlukas/jitsi-operator:0.1_beta
           command:
           - jitsi-operator
           imagePullPolicy: Always
