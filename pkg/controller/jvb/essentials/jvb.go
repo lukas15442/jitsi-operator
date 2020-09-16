@@ -7,6 +7,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+// jvb deployments
+
 func ServiceAccountForJvb(namespace string) *corev1.ServiceAccount {
 	service := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{

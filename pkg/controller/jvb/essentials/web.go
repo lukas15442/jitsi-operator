@@ -7,6 +7,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+//jitsi web deployments
+
 func DeploymentForWeb(namespace string) *appsv1.Deployment {
 	replicas := int32(0)
 

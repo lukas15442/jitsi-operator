@@ -6,6 +6,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+//jicofo deployments
+
 func DeploymentForJicofo(namespace string) *appsv1.Deployment {
 	replicas := int32(0)
 

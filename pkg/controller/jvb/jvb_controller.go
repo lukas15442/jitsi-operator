@@ -104,11 +104,14 @@ func (r *ReconcileJVB) Reconcile(request reconcile.Request) (reconcile.Result, e
 		return reconcile.Result{}, err
 	}
 
+	// proof if any dployments have to be created
 	r.proofInits(request, reqLogger)
 
+	// get size from custom resource
 	size := int(instance.Spec.Size)
 	reqLogger.Info("JVB Size: " + fmt.Sprint(size))
 
+	// get all jvb deployments
 	deployments := &appsv1.DeploymentList{}
 	opts := []client.ListOption{
 		client.InNamespace(request.NamespacedName.Namespace),
@@ -117,6 +120,7 @@ func (r *ReconcileJVB) Reconcile(request reconcile.Request) (reconcile.Result, e
 	ctx := context.TODO()
 	err = r.client.List(ctx, deployments, opts...)
 
+	// create or delete jvb's depending on existing jvb's and size in custom resource
 	if len(deployments.Items) < size {
 		r.createDeploymentsAndServicesForJVB(size-len(deployments.Items), request, instance, reqLogger)
 	} else if len(deployments.Items) > size {
@@ -192,6 +196,7 @@ func (r *ReconcileJVB) getSecrets(request reconcile.Request) *corev1.SecretList 
 	return secrets
 }
 
+//proofInits proofs if any deployments should be created
 func (r *ReconcileJVB) proofInits(request reconcile.Request, reqLogger logr.Logger) {
 	prosodyDeployment := true
 	jicofoDeployment := true
@@ -342,6 +347,7 @@ func (r *ReconcileJVB) proofInits(request reconcile.Request, reqLogger logr.Logg
 	}
 }
 
+//createDeploymentsAndServicesForJVB creates complete jvb's of size *size*.
 func (r *ReconcileJVB) createDeploymentsAndServicesForJVB(size int, request reconcile.Request, instance *jitsiv1alpha1.Jitsi, reqLogger logr.Logger) {
 	for i := 0; i < size; i++ {
 		random := essentials.RandomString(10)
@@ -377,6 +383,7 @@ func (r *ReconcileJVB) createDeploymentForJVB(namespace string, random string, o
 	deployment.Spec.Template.Labels[operatorInstanceNameLabel] = instanceName
 	deployment.Spec.Template.Labels[operatorNameLabel] = operatorNameLabelValue
 
+	// this loop is to add the node address to the node port service
 	for i, env := range deployment.Spec.Template.Spec.Containers[0].Env {
 		if env.Name == "DOCKER_HOST_ADDRESS" {
 			services := &corev1.ServiceList{}
@@ -420,6 +427,7 @@ func (r *ReconcileJVB) createServicesForJVB(namespace string, name string, rando
 	}
 }
 
+//deleteDeploymentsAndServicesForJVB deletes complete jvb's of size *size*
 func (r *ReconcileJVB) deleteDeploymentsAndServicesForJVB(size int, request reconcile.Request, reqLogger logr.Logger) {
 	for i := 0; i < size; i++ {
 		services := &corev1.ServiceList{}
